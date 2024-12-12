@@ -32,9 +32,9 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           name: slimtrade-tester ${{ env.VERSION }}
-          tag: v${{ env.VERSION }}
+          tag: ${{ env.VERSION }}
           prerelease: true
           # FIXME : Body file
-#          bodyFile: src/main/resources/text/v${{ env.VERSION }}.txt
-          artifacts: target/java-actions.jar
+          # bodyFile: src/main/resources/text/v${{ env.VERSION }}.txt
+          artifacts: target/SlimTrade.jar
           token: ${{ secrets.GITHUB_TOKEN }}
