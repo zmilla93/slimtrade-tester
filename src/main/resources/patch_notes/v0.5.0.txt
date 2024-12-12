@@ -1,0 +1,21 @@
+# Path of Exile 2
+- SlimTrade now works seamlessly with both POE 1 & 2
+- Added currency icons & translations for POE 2 (updated for POE1)
+- A new window detection system for UI alignment
+- **Be sure to report any alignment issues with the new system!**
+
+## Cloud Gaming
+- Added partial support for GeForce Now (other platforms upon request)
+- Features that require access to game files DO NOT work (trade popups, chat scanner, history)
+- All other features should work (game macros, cheat sheets, stash/npc searching)
+- Things might be buggy
+
+## Improvements
+- Many small UI improvements
+- Fixed a crash on systems that don't support a system tray
+
+## How to Install
+- Make sure you have [Java](https://www.java.com) installed
+- Download and run 'SlimTrade.jar' from below
+
+*Having issues? Check the [troubleshooting guide](https://github.com/zmilla93/SlimTrade/wiki/Troubleshooting).*
