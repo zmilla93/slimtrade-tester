@@ -1,269 +1,152 @@
 package com.slimtrade.core.managers;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
-import com.slimtrade.core.saving.OverlaySaveFile;
-import com.slimtrade.core.saving.SaveFile;
-import com.slimtrade.core.saving.ScannerSaveFile;
-import com.slimtrade.core.saving.StashSaveFile;
-import com.slimtrade.gui.options.ISaveable;
-import com.slimtrade.gui.panels.ContainerPanel;
+import com.slimtrade.core.data.IgnoreItemData;
+import com.slimtrade.core.saving.legacy.SaveFilePatcherManager;
+import com.slimtrade.core.saving.savefiles.*;
+import com.slimtrade.core.utility.Platform;
+import com.slimtrade.gui.managers.FrameManager;
+import com.slimtrade.modules.saving.SaveFile;
+import com.slimtrade.modules.theme.ThemeManager;
+import com.slimtrade.modules.updater.ZLogger;
 
 import javax.swing.*;
-import java.awt.*;
-import java.io.*;
+import java.io.File;
 import java.util.ArrayList;
 
 public class SaveManager {
 
-    // Public Info
-    public final String savePath;
-    public final String stashSavePath;
-    public final String overlaySavePath;
-    public final String scannerSavePath;
-    public final String saveDirectory;
-    public SaveFile saveFile = new SaveFile();
-    public StashSaveFile stashSaveFile = new StashSaveFile();
-    public OverlaySaveFile overlaySaveFile = new OverlaySaveFile();
-    public ScannerSaveFile scannerSaveFile = new ScannerSaveFile();
+    // Install folder names
+    public static final String folderWin = "SlimTrade";
+    public static final String folderOther = ".slimtrade";
 
-    public ArrayList<String> clientPaths = new ArrayList<>();
+    // Subfolder Names
+    private static final String audioFolderName = "audio";
+    private static final String imagesFolderName = "images";
+    private static final String logFolderName = "logs";
 
-    //Internal
-    private final String folderWin = "SlimTrade";
-    private final String folderOther = ".slimtrade";
-    private final String fileName = "settings.json";
-    private final String stashFileName = "stash.json";
-    private final String overlayFileName = "overlay.json";
-    private final String scannerFileName = "scanner.json";
+    // Full paths
+    private static String saveDirectory;
+    private static String audioDirectory;
+    private static String logsDirectory;
+    private static String imagesDirectory;
 
-    private boolean validSavePath = false;
+    // Safe Files
+    public static SaveFile<SettingsSaveFile> settingsSaveFile = new SaveFile<>(getSaveDirectory() + "settings.json", SettingsSaveFile.class);
+    public static SaveFile<AppStateSaveFile> appStateSaveFile = new SaveFile<>(getSaveDirectory() + "app_state.json", AppStateSaveFile.class);
+    public static SaveFile<OverlaySaveFile> overlaySaveFile = new SaveFile<>(getSaveDirectory() + "overlay.json", OverlaySaveFile.class);
+    public static SaveFile<StashSaveFile> stashSaveFile = new SaveFile<>(getSaveDirectory() + "stash.json", StashSaveFile.class);
+    public static SaveFile<IgnoreSaveFile> ignoreSaveFile = new SaveFile<>(getSaveDirectory() + "ignore.json", IgnoreSaveFile.class);
+    public static SaveFile<PinSaveFile> pinSaveFile = new SaveFile<>(getSaveDirectory() + "pins.json", PinSaveFile.class);
+    public static SaveFile<ChatScannerSaveFile> chatScannerSaveFile = new SaveFile<>(getSaveDirectory() + "scanner.json", ChatScannerSaveFile.class);
+    public static SaveFile<PatchNotesSaveFile> patchNotesSaveFile = new SaveFile<>(getSaveDirectory() + "patch_notes.json", PatchNotesSaveFile.class);
 
-    // File Stuff
-    private FileReader fr;
-    private BufferedReader br;
-    private FileWriter fw;
-    private Gson gson;
-
-    // TODO : OPTIMIZE :    Combine all saving and loading functions into one using wildcars?
-    // TODO :               Also need to add file.exists() check to avoid try/catch
-
-    public SaveManager() {
-
-        // Set save directory
-        String os = (System.getProperty("os.name")).toUpperCase();
-        if (os.contains("WIN")) {
-            saveDirectory = System.getenv("LocalAppData") + File.separator + folderWin;
-        } else {
-            saveDirectory = System.getProperty("user.home") + File.separator + folderOther;
-        }
-        savePath = saveDirectory + File.separator + fileName;
-        stashSavePath = saveDirectory + File.separator + stashFileName;
-        overlaySavePath = saveDirectory + File.separator + overlayFileName;
-        scannerSavePath = saveDirectory + File.separator + scannerFileName;
-        File saveDir = new File(saveDirectory);
-        if (!saveDir.exists()) {
-            saveDir.mkdirs();
-        }
-        if (saveDir.exists()) {
-            validSavePath = true;
-        }
-
-        gson = new Gson();
-
+    public static void init() {
+        // Load all save files from disk
+        settingsSaveFile.loadFromDisk();
+        appStateSaveFile.loadFromDisk();
+        overlaySaveFile.loadFromDisk();
+        stashSaveFile.loadFromDisk();
+        ignoreSaveFile.loadFromDisk();
+        pinSaveFile.loadFromDisk();
+        chatScannerSaveFile.loadFromDisk();
+        patchNotesSaveFile.loadFromDisk();
+        // Build Caches
+        settingsSaveFile.data.buildMacroCache();
+        ignoreSaveFile.data.buildCache();
+        stashSaveFile.data.buildCache();
+        // Finish
+        addStaticListeners();
+        SaveFilePatcherManager.handleSaveFilePatching();
     }
 
-    public void loadFromDisk() {
-        StringBuilder builder = new StringBuilder();
-        try {
-            br = new BufferedReader(new FileReader(savePath));
-            while (br.ready()) {
-                builder.append(br.readLine());
+    private static void addStaticListeners() {
+        // Only static listeners should be added here,
+        // or when a save file needs to listen to itself since it is simpler than a custom class.
+        SaveManager.settingsSaveFile.addListener(() -> {
+            if (!FrameManager.hasBeenInitialized()) return;
+            SwingUtilities.invokeLater(() -> {
+                FrameManager.messageManager.refreshFadeData();
+                FrameManager.stashHelperContainer.updateLocation();
+                ThemeManager.checkFontChange();
+            });
+        });
+        SaveManager.ignoreSaveFile.removeAllListeners();
+        SaveManager.ignoreSaveFile.addListener(() -> {
+            SaveManager.ignoreSaveFile.data.buildCache();
+            if (!FrameManager.hasBeenInitialized()) return;
+            assert SwingUtilities.isEventDispatchThread();
+            for (IgnoreItemData ignoreItemData : SaveManager.ignoreSaveFile.data.ignoreList) {
+                FrameManager.messageManager.quickCloseIgnore(ignoreItemData);
             }
-            br.close();
-            saveFile = gson.fromJson(builder.toString(), SaveFile.class);
-            if (saveFile == null) {
-                saveFile = new SaveFile();
-            }
-        } catch (JsonSyntaxException e1) {
-            saveFile = new SaveFile();
-            validateClientPath();
-            System.out.println("Corrupted save file!");
-            return;
-        } catch (IOException e2) {
-//            System.out.println("Creating new save file.");
-            saveFile = new SaveFile();
-            validateClientPath();
-
-            return;
-        }
-        validateClientPath();
+        });
+        stashSaveFile.addListener(() -> stashSaveFile.data.buildCache());
     }
 
-    public void saveToDisk() {
-        try {
-            fw = new FileWriter(savePath);
-            fw.write(gson.toJson(saveFile));
-            fw.close();
-        } catch (IOException e) {
-            return;
-        }
+    public static String getAudioDirectory() {
+        if (audioDirectory == null)
+            audioDirectory = validateDirectory(getSaveDirectory() + audioFolderName + File.separator);
+        return audioDirectory;
     }
 
-    public void loadStashFromDisk() {
-        StringBuilder builder = new StringBuilder();
-        try {
-            br = new BufferedReader(new FileReader(stashSavePath));
-            while (br.ready()) {
-                builder.append(br.readLine());
-            }
-            br.close();
-            stashSaveFile = gson.fromJson(builder.toString(), StashSaveFile.class);
-            if (stashSaveFile == null) {
-                stashSaveFile = new StashSaveFile();
-            }
-        } catch (JsonSyntaxException e1) {
-            stashSaveFile = new StashSaveFile();
-            System.out.println("Corrupted save file!");
-            return;
-        } catch (IOException e2) {
-            stashSaveFile = new StashSaveFile();
-//            System.out.println("Creating new save file.");
-            return;
-        }
+    public static String getImagesDirectory() {
+        if (imagesDirectory == null)
+            imagesDirectory = validateDirectory(getSaveDirectory() + imagesFolderName + File.separator);
+        return imagesDirectory;
     }
 
-    public void saveStashToDisk() {
-        try {
-            fw = new FileWriter(stashSavePath);
-            fw.write(gson.toJson(stashSaveFile));
-            fw.close();
-        } catch (IOException e) {
-            return;
-        }
+    public static String getLogsDirectory() {
+        if (logsDirectory == null)
+            logsDirectory = getSaveDirectory() + logFolderName + File.separator;
+        return logsDirectory;
     }
 
-    public void loadOverlayFromDisk() {
-        StringBuilder builder = new StringBuilder();
-        try {
-            br = new BufferedReader(new FileReader(overlaySavePath));
-            while (br.ready()) {
-                builder.append(br.readLine());
-            }
-            br.close();
-            overlaySaveFile = gson.fromJson(builder.toString(), OverlaySaveFile.class);
-            if (overlaySaveFile == null) {
-                overlaySaveFile = new OverlaySaveFile();
-            }
-        } catch (JsonSyntaxException e1) {
-            overlaySaveFile = new OverlaySaveFile();
-            System.out.println("Corrupted save file!");
-            return;
-        } catch (IOException e2) {
-            overlaySaveFile = new OverlaySaveFile();
-//            System.out.println("Creating new save file.");
-            return;
+    public static String getSaveDirectory() {
+        if (saveDirectory == null) {
+            if (Platform.current == Platform.WINDOWS)
+                saveDirectory = System.getenv("LocalAppData") + File.separator + folderWin + File.separator;
+            else
+                saveDirectory = System.getProperty("user.home") + File.separator + folderOther + File.separator;
+            validateDirectory(saveDirectory);
         }
+        return saveDirectory;
     }
 
-    public void saveOverlayToDisk() {
-        try {
-            fw = new FileWriter(overlaySavePath);
-            fw.write(gson.toJson(overlaySaveFile));
-            fw.close();
-        } catch (IOException e) {
-            return;
+    public static String validateDirectory(String path) {
+        File file = new File(path);
+        if (!file.exists()) {
+            if (!file.mkdirs()) ZLogger.err("Failed to validate directory: " + path);
         }
+        return path;
     }
 
-    public void loadScannerFromDisk() {
-        StringBuilder builder = new StringBuilder();
-        try {
-            br = new BufferedReader(new FileReader(scannerSavePath));
-            while (br.ready()) {
-                builder.append(br.readLine());
-            }
-            br.close();
-            scannerSaveFile = gson.fromJson(builder.toString(), ScannerSaveFile.class);
-            if (scannerSaveFile == null) {
-                scannerSaveFile = new ScannerSaveFile();
-            }
-        } catch (JsonSyntaxException e1) {
-            scannerSaveFile = new ScannerSaveFile();
-            System.out.println("Corrupted save file!");
-            return;
-        } catch (IOException e2) {
-            scannerSaveFile = new ScannerSaveFile();
-            saveScannerToDisk();
-//            System.out.println("Creating new save file.");
-            return;
+    public static ArrayList<String> getPotentialClients() {
+        ArrayList<String> paths = new ArrayList<>();
+        for (String path : getCommonDirectories()) {
+            File file = new File(path);
+            if (file.isFile()) paths.add(path);
         }
+        return paths;
     }
 
-    public void saveScannerToDisk() {
-        try {
-            fw = new FileWriter(scannerSavePath);
-            fw.write(gson.toJson(scannerSaveFile));
-            fw.close();
-        } catch (IOException e) {
-            return;
+    private static ArrayList<String> getCommonDirectories() {
+        ArrayList<String> paths = new ArrayList<>();
+        // Iterates A - Z
+        for (int i = 65; i <= 90; i++) {
+            char c = (char) i;
+            // Stand Alone
+            paths.add(c + ":/Grinding Gear Games/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files/Grinding Gear Games/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files (x86)/Grinding Gear Games/Path of Exile/logs/Client.txt");
+            // Steam
+            paths.add(c + ":/Steam/steamapps/common/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files/Steam/steamapps/common/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files (x86)/Steam/steamapps/common/Path of Exile/logs/Client.txt");
+            // Steam Library
+            paths.add(c + ":/SteamLibrary/steamapps/common/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files/SteamLibrary/steamapps/common/Path of Exile/logs/Client.txt");
+            paths.add(c + ":/Program Files (x86)/SteamLibrary/steamapps/common/Path of Exile/logs/Client.txt");
         }
-    }
-
-    public int validateClientPath() {
-        int clientCount = 0;
-        String clientPath = saveFile.clientPath;
-        if (clientPath != null) {
-            File file = new File(clientPath);
-            if (file.exists() && file.isFile()) {
-                return 1;
-            }
-        }
-        String[] commonDrives = {"C", "D", "E", "F"};
-        ArrayList<String> stubs = new ArrayList<>();
-        stubs.add(":/Program Files/Steam/steamapps/common/Path of Exile/logs/Client.txt");
-        stubs.add(":/Program Files (x86)/Steam/steamapps/common/Path of Exile/logs/Client.txt");
-        stubs.add(":/Program Files/Grinding Gear Games/Path of Exile/logs/Client.txt");
-        stubs.add(":/Program Files (x86)/Grinding Gear Games/Path of Exile/logs/Client.txt");
-        stubs.add(":/Steam/steamapps/common/Path of Exile/logs/Client.txt");
-        stubs.add(":/SteamLibrary/steamapps/common/Path of Exile/logs/Client.txt");
-        clientPaths.clear();
-        for (String drive : commonDrives) {
-            for(String stub : stubs) {
-                File clientFile = new File(drive + stub);
-                if (clientFile.exists() && clientFile.isFile()) {
-//                    System.out.println("Found : " + drive + stub);
-                    clientPaths.add(drive + stub);
-                    clientCount++;
-                }
-            }
-        }
-        if(clientCount == 1) {
-            saveFile.clientPath = clientPaths.get(0);
-        }
-        return clientCount;
-    }
-
-    public static void recursiveSave(Component component) {
-        if(component instanceof ISaveable) {
-            ((ISaveable) component).save();
-        }
-        if(component instanceof Container) {
-            for(Component c : ((Container) component).getComponents()) {
-                recursiveSave(c);
-            }
-        }
-    }
-
-    public static void recursiveLoad(Component component) {
-        if(component instanceof ISaveable) {
-            ((ISaveable) component).load();
-        }
-        if(component instanceof Container) {
-            for(Component c : ((Container) component).getComponents()) {
-                recursiveLoad(c);
-            }
-        }
+        return paths;
     }
 
 }

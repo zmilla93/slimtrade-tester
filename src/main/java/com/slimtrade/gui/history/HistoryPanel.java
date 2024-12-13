@@ -1,135 +1,94 @@
 package com.slimtrade.gui.history;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
+import com.slimtrade.core.data.SaleItem;
+import com.slimtrade.core.data.SaleItemWrapper;
+import com.slimtrade.core.enums.HistoryOrder;
+import com.slimtrade.core.managers.SaveManager;
+import com.slimtrade.core.trading.TradeOffer;
+import com.slimtrade.gui.managers.FrameManager;
+import com.slimtrade.modules.saving.ISaveListener;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import java.awt.*;
 import java.util.ArrayList;
 
-import javax.swing.BoxLayout;
-import javax.swing.JPanel;
+public class HistoryPanel extends JPanel implements ISaveListener {
 
-import com.slimtrade.App;
-import com.slimtrade.core.managers.ColorManager;
-import com.slimtrade.core.observing.improved.IColorable;
-import com.slimtrade.core.utility.TradeOffer;
-import com.slimtrade.core.utility.TradeUtility;
-import com.slimtrade.gui.options.OrderType;
+    public static int MAX_MESSAGE_COUNT = 50;
 
-public class HistoryPanel extends JPanel implements IColorable {
+    private final ArrayList<HistoryRowData> data = new ArrayList<>();
+    private final HistoryTable table;
+    private final JButton reloadButton = new JButton("Open Selected Message");
 
-	private static final long serialVersionUID = 1L;
-	// private TradeOffer savedTrade;
+    public HistoryPanel() {
+        String[] columnNames = new String[]{"Date", "Time", "Player", "Item", "Price"};
 
-	private ArrayList<TradeOffer> trades = new ArrayList<TradeOffer>();
-	private ArrayList<HistoryRow> tradePanels = new ArrayList<HistoryRow>();
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        JPanel buttonPanel = new JPanel(new GridBagLayout());
 
+        int inset = 2;
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.gridx = 0;
+        gc.gridy = 0;
+        gc.insets = new Insets(inset, 0, inset, inset);
+        buttonPanel.add(reloadButton, gc);
+        bottomPanel.add(buttonPanel, BorderLayout.EAST);
 
-	private JPanel contentPanel;
-	
-//	private static int maxTrades = 10;
-	
-	private boolean close = false;
-	
-	HistoryPanel() {
-		this.setLayout(new BorderLayout());
-		contentPanel = new JPanel();
-		contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-		this.add(contentPanel, BorderLayout.CENTER);
-	}
+        // Table
+        DefaultTableCellRenderer defaultCellRenderer = new DefaultTableCellRenderer();
+        defaultCellRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        table = new HistoryTable(columnNames, data);
+        table.setDefaultRenderer(DateString.class, defaultCellRenderer);
+        table.setDefaultRenderer(TimeString.class, defaultCellRenderer);
+        table.setDefaultRenderer(PlayerNameWrapper.class, new PlayerNameCellRenderer());
+        table.setDefaultRenderer(SaleItem.class, new SaleItemCellRenderer());
+        table.setDefaultRenderer(SaleItemWrapper.class, new SaleItemCellRenderer());
+        table.setAutoCreateRowSorter(true);
 
-	public void addTrade(TradeOffer trade, boolean updateUI) {
-		int i = 0;
-		// Delete old duplicate
-		for (TradeOffer savedTrade : trades) {
-			if (TradeUtility.isDuplicateTrade(trade, savedTrade)) {
-				trades.remove(i);
-				if (updateUI) {
-					contentPanel.remove(tradePanels.get(i));
-					tradePanels.remove(i);
-				}
-				break;
-			}
-			i++;
-		}
-		// Delete oldest trade if at max trades
-		if (trades.size() >= App.saveManager.saveFile.historyLimit && App.saveManager.saveFile.historyLimit > 0) {
-			trades.remove(0);
-			if (updateUI) {
-				contentPanel.remove(tradePanels.get(0));
-				tradePanels.remove(0);
-			}
-		}
-		// Add new trade
-		trades.add(trade);
-		if (updateUI) {
-			HistoryRow row = new HistoryRow(trade, close);
-			tradePanels.add(row);
-			if(HistoryWindow.orderType == OrderType.NEW_FIRST){
-				contentPanel.add(tradePanels.get(tradePanels.size() - 1), 0);
-			}else{
-				contentPanel.add(tradePanels.get(tradePanels.size() - 1));
-			}
-			App.eventManager.recursiveColor(row);
-			this.revalidate();
-			this.repaint();
-		}
-	}
+        // Panel Layout
+        setLayout(new BorderLayout());
+        JScrollPane scrollPane = new JScrollPane(table);
+        add(scrollPane, BorderLayout.CENTER);
+        add(bottomPanel, BorderLayout.SOUTH);
 
-	public void initUI() {
-//		Debugger.benchmarkStart();
-		for (TradeOffer trade : trades) {
-			HistoryRow row = new HistoryRow(trade, close);
-			if(HistoryWindow.orderType == OrderType.NEW_FIRST){
-				contentPanel.add(row, 0);
-			}else{
-				contentPanel.add(row);
-			}
-			tradePanels.add(row);
-		}
-		App.eventManager.recursiveColor(this);
-//		App.logger.log(Level.INFO, "HISTORY BUILD TIME : " + Debugger.benchmark());
-		this.revalidate();
-		this.repaint();
-	}
-	
-	public void refreshOrder(){
-		if(HistoryWindow.orderType == OrderType.NEW_FIRST){
-			for(HistoryRow row : tradePanels){
-				contentPanel.add(row, 0);
-			}
-		}else{
-			for(HistoryRow row : tradePanels){
-				contentPanel.add(row);
-			}
-		}
-		this.revalidate();
-		this.repaint();
-	}
+        // Listeners
+        addListeners();
+        SaveManager.settingsSaveFile.addListener(this);
+    }
 
-	public void clearTrades() {
-		contentPanel.removeAll();
-		trades.clear();
-		tradePanels.clear();
-	}
-	
-	public void updateDate(){
-		for(HistoryRow row : tradePanels){
-			row.updateDate();
-		}
-	}
-	
-	public void updateTime(){
-		for(HistoryRow row : tradePanels){
-			row.updateTime();
-		}
-	}
-	
-	public void setClose(boolean close){
-		this.close = close;
-	}
+    private void addListeners() {
+        reloadButton.addActionListener(e -> refreshSelectedTrade());
+    }
 
+    public void reloadUI() {
+        table.getHistoryTableModel().fireTableDataChanged();
+    }
 
-	@Override
-	public void updateColor() {
-		contentPanel.setBackground(ColorManager.BACKGROUND);
-	}
+    public void addRow(TradeOffer tradeOffer, boolean updateUI) {
+        if (data.size() >= MAX_MESSAGE_COUNT) data.remove(0);
+        HistoryRowData rowData = new HistoryRowData(tradeOffer);
+        data.add(rowData);
+        if (updateUI) table.getHistoryTableModel().fireTableDataChanged();
+    }
+
+    public void clearAllRows() {
+        data.clear();
+        table.getHistoryTableModel().fireTableDataChanged();
+    }
+
+    private void refreshSelectedTrade() {
+        int index = table.getSelectedRow();
+        if (SaveManager.settingsSaveFile.data.historyOrder == HistoryOrder.NEWEST_FIRST)
+            index = data.size() - 1 - index;
+        if (index == -1 || index >= data.size()) return;
+        TradeOffer trade = data.get(index).tradeOffer;
+        FrameManager.messageManager.addMessage(trade, false, true);
+    }
+
+    @Override
+    public void onSave() {
+        table.getHistoryTableModel().fireTableDataChanged();
+    }
+
 }

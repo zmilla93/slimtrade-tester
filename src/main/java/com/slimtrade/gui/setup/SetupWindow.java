@@ -1,158 +1,152 @@
 package com.slimtrade.gui.setup;
 
 import com.slimtrade.App;
-import com.slimtrade.core.References;
-import com.slimtrade.core.managers.ColorManager;
-import com.slimtrade.core.managers.SetupManager;
-import com.slimtrade.core.observing.improved.IColorable;
-import com.slimtrade.gui.FrameManager;
-import com.slimtrade.gui.buttons.BasicButton;
-import com.slimtrade.gui.enums.ICacheImage;
-import com.slimtrade.gui.enums.WindowState;
-import com.slimtrade.gui.setup.panels.*;
+import com.slimtrade.core.enums.DefaultIcon;
+import com.slimtrade.core.enums.SetupPhase;
+import com.slimtrade.core.managers.SaveManager;
+import com.slimtrade.core.utility.ZUtil;
+import com.slimtrade.gui.managers.SetupManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Objects;
 
-public class SetupWindow extends JFrame implements IColorable {
+public class SetupWindow extends JFrame {
 
-    private Container container;
-    private JPanel innerPanel;
-    private JPanel buttonPanel;
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel cardPanel = new JPanel(cardLayout);
 
-    private ClientPanel clientPanel = new ClientPanel(this);
-    private CharacterPanel characterPanel = new CharacterPanel();
-    private StashPanel stashPanel = new StashPanel();
-    private CompletePanel completePanel = new CompletePanel();
+    private final StartSetupPanel startPanel = new StartSetupPanel();
+    private final FinishSetupPanel finishPanel = new FinishSetupPanel();
 
-    private ArrayList<JPanel> panels = new ArrayList<>();
+    private final JButton previousButton = new JButton("Previous");
+    private final JButton nextButton = new JButton(NEXT_TEXT);
 
-    private JButton backButton;
-    private JButton nextButton;
+    private final ClientSetupPanel clientPanel = new ClientSetupPanel(nextButton);
+    private final StashSetupPanel stashPanel = new StashSetupPanel(nextButton);
+    private final StashFolderSetupPanel stashFolderPanel = new StashFolderSetupPanel(nextButton);
 
-    private int panelIndex = 0;
+    private static final String NEXT_TEXT = "Next";
+
+    private final JLabel countLabel = new JLabel("10/10");
+
+    private final HashMap<Integer, AbstractSetupPanel> panelMap = new HashMap<>();
+
+    private int panelIndex;
 
     public SetupWindow() {
-        this.setTitle(References.APP_NAME + " - Setup");
-        this.setIconImage(new ImageIcon(this.getClass().getClassLoader().getResource("icons/default/tagx64.png")).getImage());
-        this.setDefaultCloseOperation(EXIT_ON_CLOSE);
-        this.setAlwaysOnTop(true);
-        container = this.getContentPane();
-        container.setLayout(new BorderLayout());
-        innerPanel = new JPanel(FrameManager.gridBag);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setTitle("SlimTrade Setup");
+        ArrayList<Image> images = new ArrayList<>();
+        images.add(new ImageIcon(Objects.requireNonNull(getClass().getResource(DefaultIcon.CHAOS_ORB.path()))).getImage());
+        images.add(new ImageIcon(Objects.requireNonNull(getClass().getResource(DefaultIcon.CHAOS_ORB.path()))).getImage().getScaledInstance(32, 32, Image.SCALE_SMOOTH));
+        setIconImages(images);
+        JPanel contentPanel = new JPanel();
+        setContentPane(contentPanel);
+        previousButton.setVisible(false);
 
-        // Panel List
-        if(SetupManager.clientSetupCheck) {
-            panels.add(clientPanel);
-        }
-        if(SetupManager.characterNameCheck) {
-            panels.add(characterPanel);
-        }
-        if(SetupManager.stashOverlayCheck) {
-            panels.add(stashPanel);
-        }
-        if(SetupManager.clientSetupCheck) {
+        contentPanel.setLayout(new BorderLayout());
+        contentPanel.add(cardPanel, BorderLayout.CENTER);
 
-        }
-        panels.add(completePanel);
+        JPanel progressPanel = new JPanel(new GridBagLayout());
+        JPanel buttonPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = ZUtil.getGC();
+        int inset = 5;
+        int buttonSpacing = 10;
+        gc.insets = new Insets(inset, inset, inset, 0);
+        progressPanel.add(countLabel, gc);
+        buttonPanel.add(previousButton, gc);
+        gc.insets.right = inset;
+        gc.insets.left = buttonSpacing;
+        gc.gridx++;
+        buttonPanel.add(nextButton, gc);
 
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.gridx = 0;
-        gc.gridy = 0;
+        JPanel bufferPanel = new JPanel(new BorderLayout());
+        bufferPanel.add(progressPanel, BorderLayout.WEST);
+        bufferPanel.add(buttonPanel, BorderLayout.EAST);
 
-        // Inner Panel
-        innerPanel.add(panels.get(0), gc);
+        contentPanel.add(bufferPanel, BorderLayout.SOUTH);
 
-
-        // Button Panel
-        buttonPanel = new JPanel(new FlowLayout(FlowLayout.TRAILING, 35, 5));
-        backButton = new BasicButton("Back");
-        nextButton = new BasicButton("Next");
-        buttonPanel.add(backButton);
-        buttonPanel.add(nextButton);
-
-        // Finish
-        refreshButtons();
-        createListeners();
-        container.add(innerPanel, BorderLayout.CENTER);
-        container.add(buttonPanel, BorderLayout.SOUTH);
-
-        this.pack();
-        this.setMinimumSize(new Dimension(600, 300));
-        App.eventManager.recursiveColor(this);
-        App.eventManager.recursiveColor(clientPanel);
-        App.eventManager.recursiveColor(stashPanel);
-        App.eventManager.recursiveColor(characterPanel);
-        App.eventManager.recursiveColor(completePanel);
-        FrameManager.centerFrame(this);
+        setAlwaysOnTop(true);
+        setMinimumSize(new Dimension(300, 200));
+        setResizable(false);
+        addListeners();
+        pack();
+        countLabel.setText("");
+        setLocationRelativeTo(null);
     }
 
-    public void refreshButtons() {
-        if(panelIndex == 0) {
-            backButton.setVisible(false);
-        } else {
-            backButton.setVisible(true);
-        }
-        if(panelIndex < panels.size()-1) {
-            nextButton.setText("Next");
-        } else {
-            nextButton.setText("Finish");
-        }
-        if(panels.get(panelIndex) instanceof ISetupValidator) {
-            if(((ISetupValidator) panels.get(panelIndex)).isValidInput()) {
+    private void addListeners() {
+        previousButton.addActionListener(e -> {
+            if (panelIndex > 0) {
+                panelIndex--;
+                showIndexedPanel();
                 nextButton.setEnabled(true);
-            } else {
-                nextButton.setEnabled(false);
             }
-        }
-    }
-
-    private void createListeners(){
-        backButton.addActionListener(e -> {
-            if(panelIndex == 0) {
-                return;
-            }
-            innerPanel.remove(panels.get(panelIndex));
-            panelIndex--;
-            GridBagConstraints gc = new GridBagConstraints();
-            gc.gridx = 0;
-            gc.gridy = 0;
-            innerPanel.add(panels.get(panelIndex), gc);
-            refreshButtons();
-            revalidate();
-            repaint();
         });
 
         nextButton.addActionListener(e -> {
-            if(panels.get(panelIndex) instanceof ISetupValidator) {
-                ((ISetupValidator) panels.get(panelIndex)).save();
+            if (panelIndex == cardPanel.getComponentCount() - 1) {
+                finishSetup();
             }
-            if(panelIndex < panels.size()-1) {
-                innerPanel.remove(panels.get(panelIndex));
+            if (panelIndex < cardPanel.getComponentCount() - 1) {
                 panelIndex++;
-                GridBagConstraints gc = new GridBagConstraints();
-                gc.gridx = 0;
-                gc.gridy = 0;
-                innerPanel.add(panels.get(panelIndex), gc);
-                refreshButtons();
-                revalidate();
-                repaint();
-            } else if(panelIndex == panels.size()-1) {
-                this.setAlwaysOnTop(false);
-                App.saveManager.saveToDisk();
-                this.dispose();
-                App.launch();
-                FrameManager.showTutorialWindow();
+                showIndexedPanel();
             }
         });
-
-
     }
 
-    @Override
-    public void updateColor() {
-        innerPanel.setBackground(ColorManager.BACKGROUND);
-        buttonPanel.setBackground(ColorManager.BACKGROUND);
+    private void finishSetup() {
+        if (panelMap.values().size() > 0) {
+            if (clientPanel.isSetupValid())
+                SaveManager.settingsSaveFile.data.clientPath = clientPanel.getClientPath();
+            if (stashFolderPanel.isSetupValid()) {
+                SaveManager.settingsSaveFile.data.folderOffset = stashFolderPanel.isUsingFolders();
+                SaveManager.settingsSaveFile.data.initializedFolderOffset = true;
+            }
+            SaveManager.settingsSaveFile.saveToDisk(false);
+        }
+        App.launchApp();
     }
+
+    private void showIndexedPanel() {
+        AbstractSetupPanel panel = panelMap.get(panelIndex);
+        if (panel != null) panel.validateNextButton();
+        cardLayout.show(cardPanel, Integer.toString(panelIndex));
+        previousButton.setVisible(panelIndex != 0);
+        if (panelIndex < cardPanel.getComponentCount() - 1) nextButton.setText(NEXT_TEXT);
+        else nextButton.setText("Finish");
+        countLabel.setText(panelIndex + "/" + (cardPanel.getComponentCount() - 2));
+        countLabel.setVisible(panelIndex > 0 && panelIndex < cardPanel.getComponentCount() - 1);
+    }
+
+    public void setup() {
+        cardPanel.add(startPanel, Integer.toString(cardPanel.getComponentCount()));
+        for (SetupPhase phase : SetupManager.getSetupPhases()) {
+            switch (phase) {
+                case CLIENT_PATH:
+                    panelMap.put(cardPanel.getComponentCount(), clientPanel);
+                    cardPanel.add(clientPanel, Integer.toString(cardPanel.getComponentCount()));
+                    break;
+                case STASH_POSITION:
+                    panelMap.put(cardPanel.getComponentCount(), stashPanel);
+                    cardPanel.add(stashPanel, Integer.toString(cardPanel.getComponentCount()));
+                    break;
+                case STASH_FOLDERS:
+                    panelMap.put(cardPanel.getComponentCount(), stashFolderPanel);
+                    cardPanel.add(stashFolderPanel, Integer.toString(cardPanel.getComponentCount()));
+                    break;
+            }
+        }
+        cardPanel.add(finishPanel, Integer.toString(cardPanel.getComponentCount()));
+        pack();
+        setLocationRelativeTo(null);
+    }
+
+    public StashSetupPanel getStashPanel() {
+        return stashPanel;
+    }
+
 }

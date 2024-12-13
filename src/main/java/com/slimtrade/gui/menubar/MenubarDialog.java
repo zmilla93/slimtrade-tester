@@ -1,225 +1,209 @@
 package com.slimtrade.gui.menubar;
 
 import com.slimtrade.App;
-import com.slimtrade.core.observing.AdvancedMouseAdapter;
-import com.slimtrade.core.utility.TradeOffer;
-import com.slimtrade.enums.MenubarButtonLocation;
-import com.slimtrade.enums.MessageType;
-import com.slimtrade.gui.FrameManager;
-import com.slimtrade.gui.basic.BasicDialog;
+import com.slimtrade.core.chatparser.IChatScannerToggleListener;
+import com.slimtrade.core.chatparser.IDndListener;
+import com.slimtrade.core.chatparser.IParserLoadedListener;
+import com.slimtrade.core.enums.Anchor;
+import com.slimtrade.core.enums.DefaultIcon;
+import com.slimtrade.core.enums.MenubarStyle;
+import com.slimtrade.core.managers.SaveManager;
+import com.slimtrade.core.utility.AdvancedMouseListener;
+import com.slimtrade.core.utility.POEInterface;
+import com.slimtrade.core.utility.TradeUtil;
+import com.slimtrade.core.utility.ZUtil;
+import com.slimtrade.gui.buttons.IconButton;
+import com.slimtrade.gui.managers.FrameManager;
+import com.slimtrade.gui.windows.BasicDialog;
+import com.slimtrade.modules.saving.ISaveListener;
+import com.slimtrade.modules.theme.IFontChangeListener;
+import com.slimtrade.modules.theme.IThemeListener;
+import com.slimtrade.modules.theme.ThemeManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Random;
-import java.util.ResourceBundle;
+import java.util.Arrays;
+import java.util.Collections;
 
-public class MenubarDialog extends BasicDialog {
+public class MenubarDialog extends BasicDialog implements ISaveListener, IFontChangeListener, IThemeListener, IParserLoadedListener, IChatScannerToggleListener, IDndListener {
 
-//    private static int buttonCount = 4;
-//    private static int spacerCount = 1;
-//    private static int spacerHeight = (int) (MenubarButton.HEIGHT * 0.3);
+    private JButton optionsButton;
+    private JButton chatScannerButton;
+    private JButton historyButton;
+    private JButton hideoutButton;
+    private JButton dndButton;
+    private JButton exitButton;
+    private final Component horizontalSeparator;
+    private final Component verticalSeparator;
+    private static final int EXIT_INSET = 8;
+    private static final String DND_ENABLED = "DND is On";
+    private static final String DND_DISABLED = "DND is Off";
+    boolean dnd;
 
-//    public static final int WIDTH = MenubarButton.WIDTH;
-//    public static final int HEIGHT = (MenubarButton.HEIGHT * buttonCount) + (spacerHeight * spacerCount);
-
-    private MenubarButton historyButton;
-    private MenubarButton chatScannerButton;
-    private MenubarButton testButton;
-    private MenubarButton optionsButton;
-    private MenubarButton quitButton;
-
-    private ArrayList<JButton> buttons = new ArrayList<>();
-
-//    private Component[] componentList;
-    private Container container = this.getContentPane();
+    private final JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
 
     public MenubarDialog() {
+        horizontalSeparator = Box.createHorizontalStrut(EXIT_INSET);
+        verticalSeparator = Box.createVerticalStrut(EXIT_INSET);
 
-        // TODO : Modify constructor of menubar buttons
+        setLayout(new BorderLayout());
+        add(buttonPanel, BorderLayout.CENTER);
 
-//        this.setBounds(0, TradeUtility.screenSize.height - HEIGHT, WIDTH, HEIGHT);
-        container.setLayout(FrameManager.gridBag);
+        rebuild();
 
-        // TODO : Update Locale
-        historyButton = new MenubarButton("");
-        chatScannerButton = new MenubarButton("Chat Scanner");
-        testButton = new MenubarButton("");
-        optionsButton = new MenubarButton("");
-        quitButton = new MenubarButton("");
+        ThemeManager.addFontListener(this);
+        ThemeManager.addThemeListener(this);
+        SaveManager.settingsSaveFile.addListener(this);
+        FrameManager.chatScannerWindow.addChatScannerToggleListener(this);
+    }
 
-        // Anything added to buttons appears on the Menubar
-        buttons.add(historyButton);
-        buttons.add(chatScannerButton);
-        buttons.add(optionsButton);
-        // Test and Quit buttons are added automatically
-
-
-        // History
-        historyButton.addMouseListener(new AdvancedMouseAdapter() {
-            public void click(MouseEvent evt) {
-                if (!FrameManager.historyWindow.isVisible()) {
-                    FrameManager.historyWindow.setShow(true);
-                }
-                FrameManager.historyWindow.toFront();
-            }
-        });
-
-        // Chat Scanner
-        chatScannerButton.addMouseListener(new AdvancedMouseAdapter() {
-            public void click(MouseEvent evt) {
-                if (!FrameManager.chatScannerWindow.isVisible()) {
-//                    FrameManager.hideMenuFrames();
-                    FrameManager.chatScannerWindow.setShow(true);
-                }
-                FrameManager.chatScannerWindow.toFront();
-            }
-        });
-
-        // TEST BUTTON
-        testButton.addMouseListener(new AdvancedMouseAdapter() {
-            public void click(MouseEvent evt) {
-                Random rng = new Random();
-                TradeOffer t = new TradeOffer("", "", MessageType.INCOMING_TRADE, "<GLD>", "IncomingTrader123", "Item Name", 1, "chaos", 60, "sale", 1, 1, "", "");
-                TradeOffer t2 = new TradeOffer("", "", MessageType.INCOMING_TRADE, "<GLD>", "HighlightTrader123", "Item Name", 1, "chaos", 60, "sale", 1, 1, "", "");
-                TradeOffer t3 = new TradeOffer("", "", MessageType.OUTGOING_TRADE, "<GLD>", "OutgoingTrader456", "Item Name", 1, "chaos", 5, "STASH_TAB", rng.nextInt(12) + 1, rng.nextInt(12) + 1, "", "");
-                TradeOffer t5 = new TradeOffer("", "", MessageType.CHAT_SCANNER, "<GLD>", "ScannerTrader789", "Search Name", "Chat message text. Lorem ipsum dolor sit amet, consectetur adipiscing elit");
-                FrameManager.messageManager.addMessage(t, false);
-                FrameManager.messageManager.addMessage(t2, false);
-                FrameManager.messageManager.addMessage(t3, false);
-                FrameManager.messageManager.addMessage(t5, false);
-                FrameManager.messageManager.setPlayerJoinedArea("HighlightTrader123");
-            }
-        });
-
-        // Options
-        optionsButton.addMouseListener(new AdvancedMouseAdapter() {
-            public void click(MouseEvent evt) {
-                if (!FrameManager.optionsWindow.isVisible()) {
-//                    FrameManager.hideMenuFrames();
-                    FrameManager.optionsWindow.setShow(true);
-                    FrameManager.optionsWindow.toFront();
-                }
-            }
-        });
-
-        // Quit Program
-        quitButton.addMouseListener(new AdvancedMouseAdapter() {
+    private void addListeners() {
+        optionsButton.addActionListener(e -> FrameManager.optionsWindow.setVisible(!FrameManager.optionsWindow.isVisible()));
+        historyButton.addActionListener(e -> FrameManager.historyWindow.setVisible(!FrameManager.historyWindow.isVisible()));
+        chatScannerButton.addMouseListener(new AdvancedMouseListener() {
+            @Override
             public void click(MouseEvent e) {
-                System.exit(0);
+                if (e.getButton() == MouseEvent.BUTTON1)
+                    FrameManager.chatScannerWindow.setVisible(!FrameManager.chatScannerWindow.isVisible());
+                else if (e.getButton() == MouseEvent.BUTTON3) FrameManager.chatScannerWindow.toggleSearch();
             }
         });
-
-        // Listeners
-        this.addMouseListener(new MouseAdapter() {
-            public void mouseExited(MouseEvent e) {
-                Rectangle bounds = FrameManager.menubar.getBounds();
-                if (!bounds.contains(MouseInfo.getPointerInfo().getLocation())) {
-                    FrameManager.menubar.setShow(false);
-                    if(App.saveManager.saveFile.enableMenubar) {
-                        FrameManager.menubarToggle.setShow(true);
-                        FrameManager.menubarToggle.repaint();
-                    }
-                }
-            }
-        });
-        this.refreshButtonText();
+        hideoutButton.addActionListener(e -> POEInterface.pasteWithFocus("/hideout"));
+        dndButton.addActionListener(e -> POEInterface.pasteWithFocus("/dnd"));
+        exitButton.addActionListener(e -> System.exit(0));
     }
 
-    private void refreshButtonText() {
-        ResourceBundle lang = ResourceBundle.getBundle("lang");
-        optionsButton.setText(lang.getString("optionsButton"));
-        historyButton.setText(lang.getString("historyButton"));
-//        testButton.setText(lang.getString("testButton"));
-        testButton.setText("Test");
-        quitButton.setText(lang.getString("quitButton"));
+    public void rebuild() {
+        if (SaveManager.settingsSaveFile.data.menubarStyle == MenubarStyle.ICON) buildIconButtons();
+        else buildTextButtons();
+        if (App.chatParser != null) updateDndButton();
+        updateScannerButton();
+        TradeUtil.applyAnchorPoint(this, SaveManager.overlaySaveFile.data.menubarLocation, SaveManager.overlaySaveFile.data.menubarAnchor);
     }
 
-    public void updateLocation() {
-        this.setLocation(App.saveManager.overlaySaveFile.menubarX, App.saveManager.overlaySaveFile.menubarY);
-        if(FrameManager.menubarToggle != null) {
-            FrameManager.menubarToggle.updateLocation();
-        }
+    private void buildIconButtons() {
+        buttonPanel.removeAll();
+        buttonPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 0, 0));
+
+        optionsButton = new IconButton(DefaultIcon.COG);
+        historyButton = new IconButton(DefaultIcon.HISTORY);
+        chatScannerButton = new IconButton(DefaultIcon.SCANNER_OFF);
+        hideoutButton = new IconButton(DefaultIcon.HOME);
+        dndButton = new IconButton(DefaultIcon.TAG);
+        exitButton = new IconButton(DefaultIcon.POWER);
+
+        for (Component comp : getOrderedComponents()) buttonPanel.add(comp);
+        addListeners();
+        pack();
     }
 
-    // If the MenuBar changes sizes, the anchor point is shifted based on the location
-    // of the expand button to ensure that the expand button never moves off screen.
-    public void init() {
-        this.reorder();
-        boolean hasChanges = false;
-        if (this.getWidth() != App.saveManager.overlaySaveFile.menubarWidth) {
-            if (App.saveManager.overlaySaveFile.menubarButtonLocation == MenubarButtonLocation.NE || App.saveManager.overlaySaveFile.menubarButtonLocation == MenubarButtonLocation.SE) {
-                App.saveManager.overlaySaveFile.menubarX += App.saveManager.overlaySaveFile.menubarWidth - this.getWidth();
-            }
-            App.saveManager.overlaySaveFile.menubarWidth = this.getWidth();
-            hasChanges = true;
-        }
-        if (this.getHeight() != App.saveManager.overlaySaveFile.menubarHeight) {
-            if (App.saveManager.overlaySaveFile.menubarButtonLocation == MenubarButtonLocation.SE || App.saveManager.overlaySaveFile.menubarButtonLocation == MenubarButtonLocation.SW) {
-                App.saveManager.overlaySaveFile.menubarY += App.saveManager.overlaySaveFile.menubarHeight - this.getHeight();
-            }
-            App.saveManager.overlaySaveFile.menubarHeight = this.getHeight();
-            hasChanges = true;
-        }
-        if (hasChanges) {
-            App.saveManager.saveOverlayToDisk();
-        }
-        this.updateLocation();
-    }
-
-
-    public void reorder() {
-        MenubarButtonLocation loc = App.saveManager.overlaySaveFile.menubarButtonLocation;
-        boolean flip = false;
-        int y = 0;
-        int modY = 1;
-        int count = buttons.size() + 1;
-        if(loc == MenubarButtonLocation.SW || loc == MenubarButtonLocation.SE) {
-            flip = true;
-            y = App.testFeatures ? count + 1 : count;
-            modY = -1;
-        }
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.gridx = 0;
-        gc.gridy = y;
+    private void buildTextButtons() {
+        buttonPanel.removeAll();
+        buttonPanel.setLayout(new GridBagLayout());
+        GridBagConstraints gc = ZUtil.getGC();
         gc.fill = GridBagConstraints.BOTH;
-        if(flip) {
-            gc.insets = new Insets(0, 2, 2, 2);
-        } else {
-            gc.insets = new Insets(2, 2, 0, 2);
+
+        optionsButton = new MenubarButton("Options");
+        historyButton = new MenubarButton("History");
+        chatScannerButton = new MenubarButton("Chat Scanner");
+        hideoutButton = new MenubarButton("Hideout");
+        dndButton = new MenubarButton(DND_DISABLED);
+        exitButton = new MenubarButton("Exit");
+
+        for (Component comp : getOrderedComponents()) {
+            buttonPanel.add(comp, gc);
+            gc.gridy++;
         }
-        for(JButton b : buttons) {
-            container.add(b, gc);
-            gc.gridy += modY;
-        }
-        if(App.testFeatures) {
-            container.add(testButton, gc);
-            gc.gridy += modY;
-        }
-        if(flip) {
-            gc.insets = new Insets(2, 2, 12, 2);
-        } else {
-            gc.insets = new Insets(12, 2, 2, 2);
-        }
-        container.add(quitButton, gc);
-        this.pack();
+        addListeners();
+        pack();
     }
 
-    private void addMouseExitListener(Component c) {
-        JDialog local = this;
-        c.addMouseListener(new MouseAdapter() {
-            public void mouseExited(MouseEvent e) {
-                Rectangle bounds = local.getBounds();
-                System.out.println("BOUNDS" + bounds);
-                if (!bounds.contains(MouseInfo.getPointerInfo().getLocation())) {
-                    FrameManager.menubarToggle.setShow(true);
-                    FrameManager.menubar.setShow(false);
-                    FrameManager.menubarToggle.repaint();
-                }
+    private Component[] getOrderedComponents() {
+        Anchor anchor = SaveManager.overlaySaveFile.data.menubarAnchor;
+        Component[] components;
+        components = new Component[]{
+                optionsButton, historyButton,
+                chatScannerButton, hideoutButton, dndButton,
+                horizontalSeparator, verticalSeparator, exitButton};
+        boolean reverse = false;
+        if (SaveManager.settingsSaveFile.data.menubarStyle == MenubarStyle.ICON && (anchor == Anchor.TOP_RIGHT || anchor == Anchor.BOTTOM_RIGHT))
+            reverse = true;
+        else if (SaveManager.settingsSaveFile.data.menubarStyle == MenubarStyle.TEXT && (anchor == Anchor.BOTTOM_LEFT || anchor == Anchor.BOTTOM_RIGHT))
+            reverse = true;
+        if (reverse) Collections.reverse(Arrays.asList(components));
+        return components;
+    }
+
+    private void handleResize() {
+        pack();
+        TradeUtil.applyAnchorPoint(this, SaveManager.overlaySaveFile.data.menubarLocation, SaveManager.overlaySaveFile.data.menubarAnchor);
+    }
+
+    @Override
+    public void onFontChanged() {
+        handleResize();
+    }
+
+    @Override
+    public void onThemeChange() {
+        handleResize();
+    }
+
+    private void updateDndButton() {
+        SwingUtilities.invokeLater(() -> {
+            if (dndButton instanceof IconButton) {
+                IconButton dndIconButton = (IconButton) dndButton;
+                if (dnd) dndIconButton.setIcon(DefaultIcon.VOLUME_MUTE);
+                else dndIconButton.setIcon(DefaultIcon.VOLUME_DOWN);
+            } else {
+                if (dnd) dndButton.setText(DND_ENABLED);
+                else dndButton.setText(DND_DISABLED);
             }
+            handleResize();
         });
+    }
+
+    private void updateScannerButton() {
+        switch (SaveManager.settingsSaveFile.data.menubarStyle) {
+            case TEXT:
+                if (SaveManager.chatScannerSaveFile.data.searching)
+                    chatScannerButton.setFont(chatScannerButton.getFont().deriveFont(Font.ITALIC));
+                else
+                    chatScannerButton.setFont(chatScannerButton.getFont().deriveFont(Font.PLAIN));
+                break;
+            case ICON:
+                if (SaveManager.chatScannerSaveFile.data.searching)
+                    ((IconButton) chatScannerButton).setIcon(DefaultIcon.SCANNER_ON);
+                else
+                    ((IconButton) chatScannerButton).setIcon(DefaultIcon.SCANNER_OFF);
+                break;
+        }
+        pack();
+    }
+
+
+    @Override
+    public void onChatScannerToggle(boolean state) {
+        updateScannerButton();
+    }
+
+    @Override
+    public void onDndToggle(boolean state, boolean loaded) {
+        dnd = state;
+        if (!loaded) return;
+        updateDndButton();
+    }
+
+    @Override
+    public void onParserLoaded(boolean dnd) {
+        this.dnd = dnd;
+        updateDndButton();
+    }
+
+    @Override
+    public void onSave() {
+        rebuild();
     }
 
 }

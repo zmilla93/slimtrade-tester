@@ -1,139 +1,156 @@
 package com.slimtrade;
 
-import com.slimtrade.core.managers.ColorManager;
+import com.slimtrade.core.References;
+import com.slimtrade.core.chatparser.ChatParser;
+import com.slimtrade.core.enums.AppState;
+import com.slimtrade.core.enums.CurrencyType;
+import com.slimtrade.core.jna.GlobalKeyboardListener;
+import com.slimtrade.core.jna.GlobalMouseListener;
+import com.slimtrade.core.managers.AudioManager;
+import com.slimtrade.core.managers.FontManager;
+import com.slimtrade.core.managers.LockManager;
 import com.slimtrade.core.managers.SaveManager;
-import com.slimtrade.core.managers.SetupManager;
-import com.slimtrade.core.observing.GlobalKeyboardListener;
-import com.slimtrade.core.observing.GlobalMouseListener;
-import com.slimtrade.core.observing.MacroEventManager;
-import com.slimtrade.core.observing.improved.EventManager;
-import com.slimtrade.core.utility.ChatParser;
-import com.slimtrade.core.utility.FileMonitor;
-import com.slimtrade.core.utility.PoeInterface;
-import com.slimtrade.core.utility.UpdateChecker;
-import com.slimtrade.debug.Debugger;
-import com.slimtrade.enums.ColorTheme;
-import com.slimtrade.gui.FrameManager;
-import com.slimtrade.gui.components.TrayButton;
-import com.slimtrade.gui.dialogs.LoadingDialog;
-import com.slimtrade.gui.enums.WindowState;
-import com.slimtrade.gui.setup.SetupWindow;
-import com.slimtrade.gui.windows.UpdateDialog;
+import com.slimtrade.core.utility.POEInterface;
+import com.slimtrade.core.utility.ZUtil;
+import com.slimtrade.gui.managers.FrameManager;
+import com.slimtrade.gui.managers.HotkeyManager;
+import com.slimtrade.gui.managers.SetupManager;
+import com.slimtrade.gui.managers.SystemTrayManager;
+import com.slimtrade.gui.pinning.PinManager;
+import com.slimtrade.gui.windows.LoadingWindow;
+import com.slimtrade.gui.windows.TutorialWindow;
+import com.slimtrade.modules.stopwatch.Stopwatch;
+import com.slimtrade.modules.theme.ThemeManager;
+import com.slimtrade.modules.updater.UpdateAction;
+import com.slimtrade.modules.updater.UpdateManager;
+import com.slimtrade.modules.updater.ZLogger;
+import com.slimtrade.modules.updater.data.AppInfo;
+import com.slimtrade.modules.updater.data.AppVersion;
 import org.jnativehook.GlobalScreen;
 import org.jnativehook.NativeHookException;
 
 import javax.swing.*;
-import java.awt.*;
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Locale;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class App {
 
-    public static Debugger debugger;
-    public static FrameManager frameManager;
-    public static MacroEventManager macroEventManager = new MacroEventManager();
-    public static EventManager eventManager = new EventManager();
-    public static SaveManager saveManager;
-    public static ChatParser chatParser = new ChatParser();
-    public static FileMonitor fileMonitor;
-    public static Logger logger = Logger.getLogger("slim");
-    public static UpdateChecker updateChecker;
-    public static GlobalKeyboardListener globalKeyboard;
-    public static GlobalMouseListener globalMouse;
-    public static LoadingDialog loadingDialog;
+    public static GlobalKeyboardListener globalKeyboardListener;
+    public static GlobalMouseListener globalMouseListener;
+    private static LoadingWindow loadingWindow;
+    private static LockManager lockManager;
+    public static UpdateManager updateManager;
 
-    // Flags
-    public static boolean checkUpdateOnLaunch = true;
-    public static boolean debugMode = false;
-    public static boolean allowPrerelease = false;
-    public static boolean forceUI = false;
-    public static boolean testFeatures = false;
+    public static ChatParser chatParser;
 
-    @SuppressWarnings("unused")
+    public static AppInfo appInfo;
+    private static AppState state = AppState.LOADING;
+    private static AppState previousState = AppState.LOADING;
+    private static boolean themesHaveBeenInitialized = false;
+    private static boolean updateIsAvailable = false;
+    private static boolean isRunningSetup = false;
+
+    // Debug Flags
+    public static boolean noUpdate = false;
+    public static boolean noLock = false;
+    public static boolean debug = false;
+    public static boolean debugUIAlwaysOnTop = false;
+    public static boolean chatInConsole = false; // TODO: This is broken, should fix or remove
+    public static int debugUIBorders = 0; // Adds borders to certain UI elements. 0 for off, 1 or 2 for debugging
+    public static final boolean debugProfileLaunch = false;
+    public static boolean showOptionsOnLaunch = false;
+    public static boolean forceSetup = false;
+    public static boolean messageUITest = false;
+
     public static void main(String[] args) {
+        parseLaunchArgs(args);
 
-        // Launch Args
-        if (args.length > 0) {
-            for (String s : args) {
-                switch (s) {
-                    // Debug
-                    case "-d":
-                        debugMode = true;
-                        break;
-                    // No update check on launch
-                    case "-nu":
-                        checkUpdateOnLaunch = false;
-                        break;
-                    // Force the overlay to always be shown
-                    case "-ui":
-                        forceUI = true;
-                        break;
-                    // Enable test features
-                    case "-tf":
-                        testFeatures = true;
-                        break;
-                    case "-pre":
-                        allowPrerelease = true;
-                        break;
-                }
+        // Lock file to prevent duplicate instances
+        lockManager = new LockManager(SaveManager.getSaveDirectory(), "app.lock");
+        if (!noLock) {
+            boolean lockSuccess = lockManager.tryAndLock();
+            if (!lockSuccess) {
+                System.err.println("SlimTrade is already running. Terminating new instance.");
+                System.exit(0);
             }
         }
 
-        //Loading Dialog
-        SwingUtilities.invokeLater(() -> {
-            loadingDialog = new LoadingDialog();
-            loadingDialog.setAlwaysOnTop(false);
-            loadingDialog.setAlwaysOnTop(true);
-        });
-
         // Logger
+        ZLogger.open(SaveManager.getSaveDirectory(), args);
+        ZLogger.log("SlimTrade launching... " + Arrays.toString(args));
+        ZLogger.cleanOldLogFiles();
+
+        // Launch profiling
+        if (debugProfileLaunch) ZLogger.log("Profiling launch actions....");
+        Stopwatch.start();
+
+        // This setting gets rid of some rendering issues with transparent frames
+        System.setProperty("sun.java2d.noddraw", "true");
+
+        // Shutdown Hook
+        Runtime.getRuntime().addShutdownHook(new Thread(App::closeProgram));
+
+        // Reduce logging level for JNativeHook
         Logger logger = Logger.getLogger(GlobalScreen.class.getPackage().getName());
         logger.setLevel(Level.WARNING);
         logger.setUseParentHandlers(false);
 
-        // Setup
-        ColorManager.setTheme(ColorTheme.SOLARIZED_LIGHT);
-        updateChecker = new UpdateChecker();
-        globalMouse = new GlobalMouseListener();
-        globalKeyboard = new GlobalKeyboardListener();
+        // Load save files & app info
+        appInfo = readAppInfo();
+        SaveManager.init();
+        profileLaunch("Time to start update");
 
-        // Save Manager
-        saveManager = new SaveManager();
-        saveManager.loadFromDisk();
-        saveManager.loadStashFromDisk();
-        saveManager.loadOverlayFromDisk();
+        // Update
+        updateManager = new UpdateManager(References.AUTHOR, References.GITHUB_REPO, SaveManager.getSaveDirectory(), appInfo, appInfo.appVersion.isPreRelease);
+        updateManager.continueUpdateProcess(args);
+        if (!noUpdate) {
+            if (updateManager.getCurrentUpdateAction() != UpdateAction.CLEAN && updateManager.isUpdateAvailable()) {
+                if (SaveManager.settingsSaveFile.data.enableAutomaticUpdate) {
+                    updateManager.runUpdateProcess();
+                } else {
+                    updateIsAvailable = true;
+                }
+            } else {
+                updateManager.runPeriodicUpdateCheck();
+            }
+        }
 
-        // GUI
+        // Loading Window
         try {
+            Stopwatch.start();
             SwingUtilities.invokeAndWait(() -> {
-                Locale.setDefault(Locale.US);
-
-                //Debug Mode
-                if (debugMode) {
-                    debugger = new Debugger();
-                    debugger.setState(Frame.ICONIFIED);
-                }
-
-                frameManager = new FrameManager();
-                ColorManager.setColorBlindMode(App.saveManager.saveFile.colorBlindMode);
-                eventManager.updateAllColors(App.saveManager.saveFile.colorTheme);
-                SaveManager.recursiveLoad(FrameManager.optionsWindow);
-
-                //TEST
-                App.eventManager.recursiveColor(FrameManager.optionsWindow);
-                FrameManager.optionsWindow.revalidate();
-                FrameManager.optionsWindow.repaint();
-
-                // POE Interface
-                try {
-                    PoeInterface poe = new PoeInterface();
-                } catch (AWTException e) {
-                    e.printStackTrace();
-                }
-
+                initializeThemes();
+                loadingWindow = new LoadingWindow(appInfo);
+                loadingWindow.setVisible(true);
             });
+            profileLaunch("ThemeManager");
+        } catch (InterruptedException | InvocationTargetException e) {
+            e.printStackTrace();
+        }
+
+        // Init Managers
+        Stopwatch.start();
+        CurrencyType.initIconList();
+        POEInterface.init();
+        AudioManager.init();
+        profileLaunch("Managers Launched");
+
+        // UI
+        try {
+            Stopwatch.start();
+            SwingUtilities.invokeAndWait(() -> {
+                // Initialize GUI
+                SystemTrayManager.init();
+                FrameManager.init();
+            });
+            profileLaunch("UI Creation");
         } catch (InterruptedException | InvocationTargetException e) {
             e.printStackTrace();
         }
@@ -144,65 +161,158 @@ public class App {
         } catch (NativeHookException e) {
             e.printStackTrace();
         }
+        globalKeyboardListener = new GlobalKeyboardListener();
+        globalMouseListener = new GlobalMouseListener();
+        GlobalScreen.addNativeKeyListener(globalKeyboardListener);
+        GlobalScreen.addNativeMouseListener(globalMouseListener);
+        GlobalScreen.addNativeMouseMotionListener(globalMouseListener);
 
-        // Finalize
-        GlobalScreen.addNativeMouseListener(globalMouse);
-        GlobalScreen.addNativeKeyListener(globalKeyboard);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> closeProgram()));
-        loadingDialog.dispose();
-        App.launch();
-        System.out.println("SlimTrade launched!");
+        // Final Setup
+        if (SetupManager.getSetupPhases().size() > 0) runSetupWizard();
+        else ZUtil.invokeAndWait(App::launchApp);
 
+        SwingUtilities.invokeLater(() -> loadingWindow.dispose());
+
+        if (debugProfileLaunch) ZLogger.log("Profiling launch complete!\n");
+        ZLogger.log("Slimtrade Launched");
     }
 
+    private static void profileLaunch(String context) {
+        if (!debugProfileLaunch) return;
+        ZLogger.log("\t" + context + ": " + Stopwatch.getElapsedSeconds());
+    }
 
-    public static void launch() {
+    private static void runSetupWizard() {
+        isRunningSetup = true;
         SwingUtilities.invokeLater(() -> {
-            if (SetupManager.isSetupRequired()) {
-                // First time setup window
-                FrameManager.setupWindow = new SetupWindow();
-                FrameManager.windowState = WindowState.SETUP;
-                FrameManager.setupWindow.setVisible(true);
-            } else {
-                // Launch
-                FrameManager.windowState = WindowState.NORMAL;
-                fileMonitor = new FileMonitor();
-                fileMonitor.startMonitor();
-                chatParser.init();
-                if(App.saveManager.saveFile.enableMenubar) {
-                    FrameManager.menubarToggle.setShow(true);
-                    if(!globalMouse.isGameFocused()) {
-                        FrameManager.menubarToggle.setVisible(false);
-                    }
-                }
-                FrameManager.trayButton.addAdditionalOptions();
-                // Check for update
-                if (checkUpdateOnLaunch) {
-                    updateChecker.checkForUpdates();
-                    if (updateChecker.isUpdateAvailable()) {
-                        UpdateDialog updateDialog = new UpdateDialog();
-                        updateDialog.setVisible(true);
-                        FrameManager.optionsWindow.recolorUpdateButton();
-                    }
-                }
-                SaveManager.recursiveLoad(FrameManager.optionsWindow);
-            }
+            FrameManager.setupWindow.setup();
+            FrameManager.setWindowVisibility(AppState.SETUP);
         });
     }
 
+    public static void initializeThemes() {
+        assert (SwingUtilities.isEventDispatchThread());
+        if (themesHaveBeenInitialized) return;
+        FontManager.loadFonts();
+        ThemeManager.setTheme(SaveManager.settingsSaveFile.data.theme);
+        ThemeManager.setFont(SaveManager.settingsSaveFile.data.preferredFontName);
+        ThemeManager.setIconSize(SaveManager.settingsSaveFile.data.iconSize);
+        ThemeManager.setFontSize(SaveManager.settingsSaveFile.data.fontSize);
+        ThemeManager.checkFontChange();
+        themesHaveBeenInitialized = true;
+    }
+
+    public static void launchApp() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (FrameManager.setupWindow != null) {
+            FrameManager.setupWindow.dispose();
+            FrameManager.setupWindow = null;
+        }
+        isRunningSetup = false;
+        SaveManager.appStateSaveFile.revertChanges();
+        SaveManager.settingsSaveFile.revertChanges();
+        SaveManager.stashSaveFile.revertChanges();
+        SaveManager.chatScannerSaveFile.revertChanges();
+        SaveManager.overlaySaveFile.revertChanges();
+        FrameManager.optionsWindow.reloadExampleTrades();
+
+        PinManager.applyAllPins();
+        FrameManager.showAppFrames();
+        SystemTrayManager.showDefault();
+
+        initParser();
+        HotkeyManager.loadHotkeys();
+        App.setState(AppState.RUNNING);
+
+        if (SaveManager.appStateSaveFile.data.tutorialVersion < TutorialWindow.TUTORIAL_VERSION) {
+            SwingUtilities.invokeLater(() -> FrameManager.tutorialWindow.setVisible(true));
+            SaveManager.appStateSaveFile.data.tutorialVersion = TutorialWindow.TUTORIAL_VERSION;
+            SaveManager.appStateSaveFile.saveToDisk(false);
+        }
+        if (updateIsAvailable) FrameManager.displayUpdateAvailable();
+        if (updateManager.getCurrentUpdateAction() == UpdateAction.CLEAN)
+            SwingUtilities.invokeLater(() -> FrameManager.patchNotesWindow.setVisible(true));
+    }
+
+    public static void initParser() {
+        if (chatParser != null) {
+            chatParser.close();
+            chatParser.removeAllListeners();
+        }
+        chatParser = new ChatParser();
+        // History
+        chatParser.addOnInitCallback(FrameManager.historyWindow);
+        chatParser.addOnLoadedCallback(FrameManager.historyWindow);
+        chatParser.addTradeListener(FrameManager.historyWindow);
+        // Message Manager
+        chatParser.addTradeListener(FrameManager.messageManager);
+        chatParser.addChatScannerListener(FrameManager.messageManager);
+        chatParser.addJoinedAreaListener(FrameManager.messageManager);
+        // Menubar
+        chatParser.addOnLoadedCallback(FrameManager.menubarIcon);
+        chatParser.addOnLoadedCallback(FrameManager.menubarDialog);
+        chatParser.addDndListener(FrameManager.menubarIcon);
+        chatParser.addDndListener(FrameManager.menubarDialog);
+        // Open
+        chatParser.open(SaveManager.settingsSaveFile.data.clientPath);
+    }
+
+    public static AppInfo readAppInfo() {
+        Properties properties = new Properties();
+        try {
+            InputStream stream = new BufferedInputStream(Objects.requireNonNull(UpdateManager.class.getClassLoader().getResourceAsStream("project.properties")));
+            properties.load(stream);
+            stream.close();
+        } catch (IOException e) {
+            ZLogger.err("Properties not found! Create a 'project.properties' file in the resources folder, then add the lines 'version=${project.version}' and 'artifactId=${project.artifactId}'.");
+            return null;
+        }
+        String name = properties.getProperty("name");
+        String version = properties.getProperty("version");
+        String url = properties.getProperty("url");
+        return new AppInfo(name, new AppVersion(version), url);
+    }
+
+    private static void parseLaunchArgs(String[] args) {
+        for (String arg : args) {
+            arg = arg.toLowerCase();
+            if (arg.equals("-nu") || arg.equals("-noupdate")) noUpdate = true;
+            if (arg.equals("-nl") || arg.equals("-nolock")) noLock = true;
+            if (arg.equals("-d") || arg.equals("-debug")) debug = true;
+            if (arg.equals("-o") || arg.equals("-options")) showOptionsOnLaunch = true;
+            if (arg.equals("-ui")) debugUIAlwaysOnTop = true;
+            if (arg.equals("-setup")) forceSetup = true;
+        }
+    }
+
+    // FIXME: This
+    public static void setState(AppState state) {
+        previousState = App.state;
+        App.state = state;
+    }
+
+    public static AppState getState() {
+        return App.state;
+    }
+
+    public static AppState getPreviousState() {
+        return App.previousState;
+    }
+
+    public static boolean isRunningSetup() {
+        return isRunningSetup;
+    }
 
     private static void closeProgram() {
         try {
             GlobalScreen.unregisterNativeHook();
+            lockManager.closeLock();
+            ZLogger.log("SlimTrade Terminated");
+            ZLogger.close();
         } catch (NativeHookException e) {
             e.printStackTrace();
         }
-        try {
-            fileMonitor.stopMonitor();
-        } catch (NullPointerException e) {
-
-        }
-        System.out.println("SlimTrade Terminated");
     }
 
 }
