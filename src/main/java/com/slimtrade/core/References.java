@@ -7,7 +7,7 @@ public class References {
 
     // GitHub Info
     public static final String AUTHOR = "zmilla93";
-    public static final String GITHUB_REPO = "SlimTrade";
+    public static final String GITHUB_REPO = "slimtrade-tester";
 
     // Links
     public static final String GITHUB_URL = "https://github.com/zmilla93/SlimTrade";
