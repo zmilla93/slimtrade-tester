@@ -174,7 +174,7 @@
                     <artifactId>maven-assembly-plugin</artifactId>
                     <version>3.6.0</version>
                     <configuration>
-                        <outputDirectory>D:\Programming\Java\_EXPORTED JARS</outputDirectory>
+                        <outputDirectory>target</outputDirectory>
                         <finalName>SlimTrade</finalName>
                         <appendAssemblyId>false</appendAssemblyId>
                         <archive>
