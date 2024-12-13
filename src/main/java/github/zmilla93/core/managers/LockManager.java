@@ -37,6 +37,8 @@ public class LockManager {
                     if (lockFile.delete()) {
                         deleteSuccess = true;
                         break;
+                    } else {
+                        ZLogger.log("Failed to obtain lock. Retrying...");
                     }
                 }
                 if (!deleteSuccess) return false;
