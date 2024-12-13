@@ -10,7 +10,7 @@ name: Test
 
 on:
   push:
-    branches: [ "dev" ]
+    branches: [ "0_5_0" ]
 
 jobs:
   build:
